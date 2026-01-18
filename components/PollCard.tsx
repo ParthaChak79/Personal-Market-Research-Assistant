@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, Tooltip } from 'recharts';
 import { PollQuestion } from '../types';
@@ -7,7 +6,7 @@ interface PollCardProps {
   poll: PollQuestion;
 }
 
-const COLORS = ['#1e293b', '#334155', '#475569'];
+const COLORS = ['#1e293b', '#6366f1', '#a855f7', '#ec4899'];
 
 // Predefined professional soft backgrounds
 const BG_VARIANTS = [
@@ -31,14 +30,18 @@ export const PollCard: React.FC<PollCardProps> = ({ poll }) => {
         {poll.question}
       </h3>
       
-      <div className="h-64 mb-6 flex-grow">
+      <div className="h-72 mb-6 flex-grow">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart layout="vertical" data={poll.options} margin={{ left: 0, right: 40, top: 0, bottom: 0 }}>
+          <BarChart 
+            layout="vertical" 
+            data={poll.options} 
+            margin={{ left: -10, right: 40, top: 0, bottom: 0 }}
+          >
             <XAxis type="number" hide domain={[0, 100]} />
             <YAxis 
               dataKey="label" 
               type="category" 
-              width={120} 
+              width={140} 
               axisLine={false} 
               tickLine={false}
               tick={{ fill: '#475569', fontSize: 10, fontWeight: 700 }}
@@ -50,7 +53,7 @@ export const PollCard: React.FC<PollCardProps> = ({ poll }) => {
                 if (active && payload && payload.length) {
                   return (
                     <div className="bg-slate-900 text-white px-3 py-1 rounded-lg text-xs font-bold shadow-xl border border-white/10">
-                      {payload[0].value}% Confidence
+                      {payload[0].value}% Sentiment
                     </div>
                   );
                 }
@@ -60,11 +63,11 @@ export const PollCard: React.FC<PollCardProps> = ({ poll }) => {
             <Bar 
               dataKey="percentage" 
               radius={[0, 8, 8, 0]} 
-              barSize={20}
+              barSize={24}
               isAnimationActive={false}
             >
               {poll.options.map((_, index) => (
-                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} fillOpacity={0.8} />
+                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} fillOpacity={0.9} />
               ))}
             </Bar>
           </BarChart>

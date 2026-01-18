@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { DecisionForm } from './components/DecisionForm';
 import { Report } from './components/Report';
 import { fetchResearchAndSimulate } from './geminiService';
@@ -7,21 +7,38 @@ import { Bot, Loader2, FileText, History, Trash2, ArrowRight, Calendar, Layers, 
 import { 
   saveSimulationToFirestore, 
   getSimulationsFromFirestore, 
-  updateSimulationInFirestore,
   deleteSimulationFromFirestore,
   isCloudAvailable
 } from './lib/firebase';
+
+const THEMES: Record<DecisionType | 'Default', { from: string; to: string; glow: string; bg: string }> = {
+  'Career': { from: '#10b981', to: '#064e3b', glow: 'rgba(16, 185, 129, 0.15)', bg: '#f0fdf4' },
+  'Business': { from: '#1e3a8a', to: '#0f172a', glow: 'rgba(30, 58, 138, 0.1)', bg: '#f8fafc' },
+  'Lifestyle': { from: '#f43f5e', to: '#f59e0b', glow: 'rgba(244, 63, 94, 0.15)', bg: '#fffafb' },
+  'Investment': { from: '#d97706', to: '#000000', glow: 'rgba(217, 119, 6, 0.1)', bg: '#fffbeb' },
+  'Personal': { from: '#6366f1', to: '#a855f7', glow: 'rgba(99, 102, 241, 0.15)', bg: '#f5f3ff' },
+  'Default': { from: '#6366f1', to: '#a855f7', glow: 'rgba(99, 102, 241, 0.15)', bg: '#f8fafc' }
+};
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
     stage: 'setup',
     surveyData: null,
     loading: false,
-    history: [],
     archive: [],
   });
   const [isSyncing, setIsSyncing] = useState(false);
   const [cloudConnected, setCloudConnected] = useState(false);
+  const [activeTheme, setActiveTheme] = useState<DecisionType | 'Default'>('Default');
+
+  // Update CSS variables when theme changes
+  useEffect(() => {
+    const theme = THEMES[activeTheme];
+    document.documentElement.style.setProperty('--brand-from', theme.from);
+    document.documentElement.style.setProperty('--brand-to', theme.to);
+    document.documentElement.style.setProperty('--brand-glow', theme.glow);
+    document.body.style.backgroundColor = theme.bg;
+  }, [activeTheme]);
 
   // Load archive and check connectivity on mount
   useEffect(() => {
@@ -36,11 +53,9 @@ const App: React.FC = () => {
   }, []);
 
   const handleStartResearch = async (decision: string, tags: DecisionType[]) => {
-    setState(prev => ({ ...prev, loading: true, history: [] }));
+    setState(prev => ({ ...prev, loading: true }));
     try {
       const data = await fetchResearchAndSimulate(decision, tags);
-      
-      // Save to Cloud (or local if cloud unavailable)
       await saveSimulationToFirestore(data);
 
       setState(prev => ({
@@ -50,6 +65,8 @@ const App: React.FC = () => {
         loading: false,
         archive: [data, ...prev.archive].slice(0, 20),
       }));
+      // Set theme based on the first/dominant tag of the new result
+      if (tags.length > 0) setActiveTheme(tags[0]);
     } catch (error) {
       console.error("Research failed:", error);
       alert("Failed to synthesize data. ARIA will try to keep you in local mode.");
@@ -57,72 +74,21 @@ const App: React.FC = () => {
     }
   };
 
-  const handleFollowUp = async (query: string) => {
-    if (!state.surveyData) return;
-    
-    const newHistory = [...state.history, query];
-    setState(prev => ({ ...prev, loading: true, history: newHistory }));
-    
-    try {
-      const newData = await fetchResearchAndSimulate(
-        state.surveyData.decision, 
-        state.surveyData.tags, 
-        newHistory
-      );
-
-      setState(prev => {
-        if (!prev.surveyData) return prev;
-
-        const existingUrls = new Set(prev.surveyData.citations.map(c => c.url));
-        const uniqueNewCitations = newData.citations.filter(c => !existingUrls.has(c.url));
-        const mergedCitations = [...prev.surveyData.citations, ...uniqueNewCitations];
-
-        const updatedData: SurveyData = {
-          ...prev.surveyData,
-          analysis: `${prev.surveyData.analysis}\n\n--- Follow-up: "${query}" ---\n\n${newData.analysis}`,
-          polls: [...prev.surveyData.polls, ...newData.polls],
-          citations: mergedCitations,
-        };
-
-        // Sync updates with Cloud
-        updateSimulationInFirestore(updatedData.id, {
-          analysis: updatedData.analysis,
-          polls: updatedData.polls,
-          citations: updatedData.citations
-        });
-
-        // Update local archive list
-        const updatedArchive = prev.archive.map(a => a.id === updatedData.id ? updatedData : a);
-
-        return {
-          ...prev,
-          surveyData: updatedData,
-          archive: updatedArchive,
-          loading: false,
-        };
-      });
-
-      setTimeout(() => {
-        const pollsEnd = document.getElementById('polls-grid-container');
-        if (pollsEnd) {
-           pollsEnd.scrollIntoView({ behavior: 'smooth', block: 'end' });
-        }
-      }, 500);
-
-    } catch (error) {
-      console.error("Follow-up research failed:", error);
-      alert("Failed to add follow-on research. Please try again.");
-      setState(prev => ({ ...prev, loading: false }));
+  const handleThemeChange = useCallback((tags: DecisionType[]) => {
+    if (tags.length > 0) {
+      setActiveTheme(tags[tags.length - 1]);
+    } else {
+      setActiveTheme('Default');
     }
-  };
+  }, []);
 
   const loadFromArchive = (item: SurveyData) => {
     setState(prev => ({
       ...prev,
       stage: 'results',
       surveyData: item,
-      history: [],
     }));
+    if (item.tags.length > 0) setActiveTheme(item.tags[0]);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -141,24 +107,27 @@ const App: React.FC = () => {
       stage: 'setup',
       surveyData: null,
       loading: false,
-      history: [],
     }));
+    setActiveTheme('Default');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const getTagColor = (tags: DecisionType[]) => {
-    if (tags.includes('Business')) return 'from-purple-500 to-indigo-600 shadow-purple-100';
-    if (tags.includes('Career')) return 'from-emerald-500 to-teal-600 shadow-emerald-100';
-    if (tags.includes('Investment')) return 'from-amber-500 to-orange-600 shadow-amber-100';
-    if (tags.includes('Lifestyle')) return 'from-rose-500 to-pink-600 shadow-rose-100';
+    if (tags.includes('Business')) return 'from-slate-700 to-slate-900 shadow-slate-100';
+    if (tags.includes('Career')) return 'from-emerald-500 to-teal-800 shadow-emerald-100';
+    if (tags.includes('Investment')) return 'from-amber-500 to-orange-900 shadow-amber-100';
+    if (tags.includes('Lifestyle')) return 'from-rose-500 to-orange-400 shadow-rose-100';
     return 'from-blue-500 to-indigo-600 shadow-blue-100';
   };
 
   return (
-    <div className="min-h-screen selection:bg-indigo-100 flex flex-col">
-      <nav className="p-6 flex items-center justify-between no-print sticky top-0 bg-white/80 backdrop-blur-md z-40 border-b border-slate-100">
+    <div className="min-h-screen selection:bg-indigo-100 flex flex-col relative overflow-hidden">
+      {/* Dynamic Background Glow */}
+      <div className="fixed inset-0 bg-glow z-0 theme-transition" />
+
+      <nav className="p-6 flex items-center justify-between no-print sticky top-0 bg-white/80 backdrop-blur-md z-40 border-b border-slate-100 shadow-sm">
         <div className="flex items-center gap-3 cursor-pointer" onClick={reset}>
-          <div className="w-10 h-10 gradient-bg rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
+          <div className="w-10 h-10 gradient-bg rounded-xl flex items-center justify-center text-white shadow-lg transition-all duration-700">
             <Bot size={24} />
           </div>
           <span className="text-2xl font-black text-slate-900 tracking-tight uppercase">ARIA</span>
@@ -180,28 +149,32 @@ const App: React.FC = () => {
       </nav>
 
       {state.loading && state.stage === 'results' && (
-        <div className="fixed inset-0 bg-white/60 backdrop-blur-md z-50 flex flex-col items-center justify-center animate-in fade-in duration-300">
+        <div className="fixed inset-0 bg-white/80 backdrop-blur-xl z-50 flex flex-col items-center justify-center animate-in fade-in duration-500">
           <div className="relative">
-            <div className="w-24 h-24 border-8 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
-            <Bot className="absolute inset-0 m-auto text-indigo-600" size={32} />
+            <div className="w-24 h-24 border-8 border-slate-100 border-t-[var(--brand-from)] rounded-full animate-spin theme-transition"></div>
+            <Bot className="absolute inset-0 m-auto text-[var(--brand-from)] theme-transition" size={32} />
           </div>
           <h2 className="text-3xl font-black text-slate-900 mt-8">Synthesizing Scenarios...</h2>
           <p className="text-slate-500 mt-2 font-medium">Scouring global trends & academic data for high-fidelity simulations.</p>
         </div>
       )}
 
-      <main className="flex-grow px-6 py-12">
+      <main className="flex-grow px-6 py-12 relative z-10">
         {state.stage === 'setup' ? (
           <div className="max-w-6xl mx-auto flex flex-col items-center space-y-32">
             <div className="text-center space-y-6 max-w-4xl">
               <h1 className="text-6xl md:text-8xl font-black text-slate-900 leading-[1.1] tracking-tighter">
-                Your Personal Research <span className="text-transparent bg-clip-text gradient-bg">Assistant.</span>
+                Your Personal Research <span className="text-transparent bg-clip-text">Assistant.</span>
               </h1>
               <p className="text-xl md:text-2xl text-slate-500 max-w-3xl mx-auto font-medium leading-relaxed">
-                The world's first research agent using Gemini 3's real-time search to simulate human responses to your biggest life, career and business decision choices.
+                The world's first research agent using Gemini 3's real-time search to simulate human responses to your biggest decision choices.
               </p>
               <div className="pt-8">
-                <DecisionForm onSubmit={handleStartResearch} loading={state.loading} />
+                <DecisionForm 
+                  onSubmit={handleStartResearch} 
+                  loading={state.loading} 
+                  onTagsChange={handleThemeChange}
+                />
               </div>
             </div>
 
@@ -287,21 +260,21 @@ const App: React.FC = () => {
             )}
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-12 w-full pt-12">
-              <div className="group space-y-4 p-8 bg-slate-50 rounded-[2.5rem] hover:bg-white hover:shadow-2xl transition-all border border-transparent hover:border-slate-100">
+              <div className="group space-y-4 p-8 bg-white/50 backdrop-blur-sm rounded-[2.5rem] hover:bg-white hover:shadow-2xl transition-all border border-transparent hover:border-slate-100">
                 <div className="w-14 h-14 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-100 group-hover:scale-110 transition-transform">
                   <Bot size={28} />
                 </div>
                 <h3 className="text-2xl font-black text-slate-900">Logic Simulation</h3>
                 <p className="text-slate-500 leading-relaxed font-medium">Models real-world responses using massive datasets of public opinion and human behavioral logic.</p>
               </div>
-              <div className="group space-y-4 p-8 bg-slate-50 rounded-[2.5rem] hover:bg-white hover:shadow-2xl transition-all border border-transparent hover:border-slate-100">
+              <div className="group space-y-4 p-8 bg-white/50 backdrop-blur-sm rounded-[2.5rem] hover:bg-white hover:shadow-2xl transition-all border border-transparent hover:border-slate-100">
                 <div className="w-14 h-14 bg-emerald-500 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-100 group-hover:scale-110 transition-transform">
                   <Loader2 size={28} />
                 </div>
                 <h3 className="text-2xl font-black text-slate-900">Real-time Grounding</h3>
                 <p className="text-slate-500 leading-relaxed font-medium">Retrieves active trends from Reddit, industry journals, and scholar citations via live search.</p>
               </div>
-              <div className="group space-y-4 p-8 bg-slate-50 rounded-[2.5rem] hover:bg-white hover:shadow-2xl transition-all border border-transparent hover:border-slate-100">
+              <div className="group space-y-4 p-8 bg-white/50 backdrop-blur-sm rounded-[2.5rem] hover:bg-white hover:shadow-2xl transition-all border border-transparent hover:border-slate-100">
                 <div className="w-14 h-14 bg-purple-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-purple-100 group-hover:scale-110 transition-transform">
                   <FileText size={28} />
                 </div>
@@ -314,15 +287,14 @@ const App: React.FC = () => {
           state.surveyData && (
             <Report 
               data={state.surveyData} 
-              onFollowUp={handleFollowUp}
               onReset={reset}
             />
           )
         )}
       </main>
 
-      <footer className="py-12 text-center text-slate-400 text-sm no-print border-t border-slate-100 bg-white">
-        <p className="font-medium">&copy; 2026 ARIA AI Research Systems. Powered by Gemini Pro with Hybrid Firestore Integration.</p>
+      <footer className="py-12 text-center text-slate-400 text-sm no-print border-t border-slate-100 bg-white relative z-10">
+        <p className="font-medium">&copy; 2026 ARIA AI Research Systems. Powered by Gemini Pro with Adaptive UI.</p>
       </footer>
     </div>
   );

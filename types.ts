@@ -4,6 +4,8 @@ export type DecisionType = 'Personal' | 'Career' | 'Business' | 'Investment' | '
 export interface PollOption {
   label: string;
   percentage: number;
+  // Added index signature to satisfy Recharts requirements where data objects must be indexable by string
+  [key: string]: any;
 }
 
 export interface PollQuestion {
@@ -11,7 +13,7 @@ export interface PollQuestion {
   question: string;
   options: PollOption[];
   context: string; 
-  bgColor?: string; // Optional random bg color
+  bgColor?: string;
 }
 
 export interface Citation {
@@ -27,6 +29,7 @@ export interface SurveyData {
   tags: DecisionType[];
   analysis: string;
   polls: PollQuestion[];
+  mainSimulation: PollOption[]; // Main decision pie chart data
   citations: Citation[];
 }
 
@@ -34,6 +37,5 @@ export interface AppState {
   stage: 'setup' | 'researching' | 'results';
   surveyData: SurveyData | null;
   loading: boolean;
-  history: string[];
   archive: SurveyData[];
 }

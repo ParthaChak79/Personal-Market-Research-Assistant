@@ -1,5 +1,6 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
-import { SurveyData, DecisionType, Citation } from "./types";
+import { SurveyData, DecisionType, Citation, PollOption, PollQuestion } from "./types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -22,8 +23,6 @@ export async function refineDecisionQuery(draft: string): Promise<string[]> {
     
     Provide 3 distinct, high-quality, and researchable alternatives. 
     Focus on being specific, data-driven, and forward-looking. 
-    Ensure the tone is professional yet personal.
-    
     Return ONLY a JSON array of 3 strings.
   `;
 
@@ -50,45 +49,40 @@ export async function refineDecisionQuery(draft: string): Promise<string[]> {
 
 export async function fetchResearchAndSimulate(
   decision: string,
-  tags: DecisionType[],
-  previousHistory: string[] = []
+  tags: DecisionType[]
 ): Promise<SurveyData> {
   const model = "gemini-3-pro-preview";
-  const isFollowUp = previousHistory.length > 0;
   
-  const historyText = isFollowUp 
-    ? `FOLLOW-UP CONTEXT: The user has seen a prior report. New follow-on query: "${previousHistory[previousHistory.length - 1]}". 
-       Dig deeper into specific niche sub-segments or edge cases mentioned.` 
-    : "";
-
   const prompt = `
-    You are a world-class research agent specializing in population simulations and market sentiment analysis.
-    
-    DECISION TO RESEARCH: "${decision}"
+    Act as a Lead Decision Architect and Forensic Data Scientist. 
+    Your objective is to help a user evaluate a complex decision by REVERSE-ENGINEERING massive datasets into simulated human behavior and decision vectors.
+
+    DECISION: "${decision}"
     DOMAINS: ${tags.join(", ")}
-    ${historyText}
-
-    RESEARCH DIRECTIVE:
-    1. Use Google Search to find real-world data from Reddit (community consensus), Google Scholar (peer-reviewed research), and industry market trends.
-    2. ANALYSIS: Provide a high-fidelity 2-paragraph synthesis of current reality vs. common misconceptions.
-    3. SIMULATION: Create ${isFollowUp ? "3-4 NEW" : "EXACTLY 6"} diverse poll questions representing different demographic slices (e.g., "Experienced Professionals", "Gen Z First-Time Homebuyers", "SaaS Founders").
-    4. DATA INTEGRITY: Do not hallucinate statistics. Base percentages on real-world indicators found in your search.
     
-    OUTPUT FORMAT (EXACT MARKDOWN):
+    RESEARCH MANDATE (CITATIONS ARE MANDATORY):
+    1. EXHAUSTIVE MULTI-QUERY SEARCH: Use Google Search to verify data from MINIMUM 15+ UNIQUE SOURCES across these domains:
+       - ACADEMIC: NBER, JSTOR, SSRN, ArXiv, and leading University research.
+       - FINANCIAL/LEGAL: SEC Filings (10-K), Earnings transcripts (AlphaSense/Seeking Alpha), Court records.
+       - COMMUNITY SENTIMENT: Aggregated niche Subreddits (e.g., r/cscareerquestions, r/investing), Hacker News, Blind.
+       - EXPERT ANALYSIS: Substack newsletters, McKinsey/Gartner/Deloitte reports.
+    
+    2. REVERSE-ENGINEERING SIMULATIONS: 
+       Translate static facts into dynamic scenario polls. Every poll option must reflect a real data point found in your search.
 
-    # ANALYSIS
-    [Deep, data-driven synthesis paragraph 1]
-    [Deep, data-driven synthesis paragraph 2]
+    OUTPUT STRUCTURE:
+    - # ANALYSIS: 5-7 high-impact strategic BULLET POINTS. Use double quotes (") for each point. No asterisks.
+    - # MAIN_SIMULATION: A primary success probability breakdown. Format: Label (Percentage%) | Label (Percentage%)
+    - # POLLS: Exactly 9 detailed scenarios/poll simulations. 
+      Format:
+      QUESTION: [Scenario]
+      OPTIONS: Option A (XX%) | Option B (XX%) | Option C (XX%)
+      CONTEXT: Explicitly name the sources: "Derived from 2024 Reddit r/[Niche] sentiment vs. [Company] 10-K risk disclosures."
+    - # CITATIONS: Provide a numbered list of EVERY unique URL you visited. This is critical for the Verification Network.
 
-    # POLLS
-    QUESTION: [The simulation question]
-    OPTIONS: [Label (Percentage%)] | [Label (Percentage%)] | [Label (Percentage%)]
-    CONTEXT: [Why this distribution? Cite the logic based on Reddit sentiment or Scholar research]
-
-    [Repeat for all polls]
-
-    # CITATIONS
-    - [Title](URL) - [Brief source description]
+    CRITICAL RULES:
+    - YOU MUST PROVIDE A DIVERSE LIST OF AT LEAST 15 URLS.
+    - NO ASTERISKS (*) or BOLDING (**).
   `;
 
   const response = await ai.models.generateContent({
@@ -96,10 +90,11 @@ export async function fetchResearchAndSimulate(
     contents: prompt,
     config: {
       tools: [{ googleSearch: {} }],
+      thinkingConfig: { thinkingBudget: 15000 }
     },
   });
 
-  const text = response.text || "";
+  const text = (response.text || "").replace(/\*/g, '');
   const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
   
   return parseSurveyData(text, decision, tags, groundingChunks);
@@ -110,77 +105,107 @@ function parseSurveyData(text: string, decision: string, tags: DecisionType[], c
   let currentSection = "";
   let analysis = "";
   let pollsRaw = "";
+  let mainSimRaw = "";
   let citationsRaw = "";
 
   lines.forEach(line => {
-    if (line.startsWith('# ANALYSIS')) { currentSection = "ANALYSIS"; return; }
-    if (line.startsWith('# POLLS')) { currentSection = "POLLS"; return; }
-    if (line.startsWith('# CITATIONS')) { currentSection = "CITATIONS"; return; }
+    const upperLine = line.trim().toUpperCase();
+    if (upperLine.startsWith('# ANALYSIS')) { currentSection = "ANALYSIS"; return; }
+    if (upperLine.startsWith('# MAIN_SIMULATION')) { currentSection = "MAIN_SIMULATION"; return; }
+    if (upperLine.startsWith('# POLLS')) { currentSection = "POLLS"; return; }
+    if (upperLine.startsWith('# CITATIONS')) { currentSection = "CITATIONS"; return; }
 
     if (currentSection === "ANALYSIS") analysis += line + "\n";
+    if (currentSection === "MAIN_SIMULATION") mainSimRaw += line + "\n";
     if (currentSection === "POLLS") pollsRaw += line + "\n";
     if (currentSection === "CITATIONS") citationsRaw += line + "\n";
   });
 
-  const polls: any[] = [];
+  const mainSimulation: PollOption[] = mainSimRaw.split('|').map(o => {
+    const trimmed = o.trim();
+    const pctMatch = trimmed.match(/(\d+)\s*%/);
+    const labelMatch = trimmed.match(/^([^(\d]+)/);
+    
+    return {
+      label: (labelMatch ? labelMatch[0] : trimmed).replace(/[()]/g, '').trim() || "Scenario",
+      percentage: pctMatch ? parseInt(pctMatch[1], 10) : 0
+    };
+  }).filter(o => o.percentage > 0);
+
+  const polls: PollQuestion[] = [];
   if (pollsRaw) {
-    const blocks = pollsRaw.split(/QUESTION\s*:/i).filter(b => b.trim());
+    const blocks = pollsRaw.split(/QUESTION\s*:?\s*/i).filter(b => b.trim());
     blocks.forEach((block, idx) => {
-      const optIdx = block.search(/OPTIONS\s*:/i);
-      const ctxIdx = block.search(/CONTEXT\s*:/i);
+      const optMatch = block.match(/OPTIONS\s*:?\s*/i);
+      const ctxMatch = block.match(/CONTEXT\s*:?\s*/i);
 
-      if (optIdx !== -1) {
-        const question = block.substring(0, optIdx).trim();
-        const optionsStr = ctxIdx !== -1 ? block.substring(optIdx + 8, ctxIdx) : block.substring(optIdx + 8);
-        const context = ctxIdx !== -1 ? block.substring(ctxIdx + 8).trim() : "Logic derived from market sentiment.";
+      if (optMatch) {
+        const question = block.substring(0, optMatch.index).trim();
+        const optionsArea = ctxMatch ? block.substring(optMatch.index + optMatch[0].length, ctxMatch.index) : block.substring(optMatch.index + optMatch[0].length);
+        const context = ctxMatch ? block.substring(ctxMatch.index + ctxMatch[0].length).trim() : "Synthesized from cross-domain behavioral modeling.";
 
-        const options = optionsStr.split('|').map(o => {
+        const options = optionsArea.split(/[|\n]/).map(o => {
           const m = o.match(/(.*?)\(?(\d+)\s*%\)?/);
           return {
-            label: m ? m[1].trim() : o.trim(),
-            percentage: m ? parseInt(m[2], 10) : 33
+            label: m ? m[1].trim() : o.trim().replace(/\(\d+%\)/, ''),
+            percentage: m ? parseInt(m[2], 10) : 0
           };
-        }).filter(o => o.label.length > 0);
+        }).filter(o => o.label && o.percentage > 0);
 
         if (options.length > 0) {
-          const randomBg = BG_VARIANTS[Math.floor(Math.random() * BG_VARIANTS.length)];
           polls.push({
-            id: `poll-${Date.now()}-${idx}-${Math.random().toString(36).substring(7)}`,
+            id: `poll-${idx}-${Date.now()}`,
             question,
             options,
             context,
-            bgColor: randomBg
+            bgColor: BG_VARIANTS[idx % BG_VARIANTS.length]
           });
         }
       }
     });
   }
 
-  const citations: Citation[] = [];
+  // Improved Citation Handling: Merge Grounding Chunks with Manual Citations
+  const citationMap = new Map<string, Citation>();
+
+  // 1. Process Grounding Chunks (Real-time links)
   chunks.forEach((chunk: any) => {
     if (chunk.web?.uri) {
-      citations.push({
-        title: chunk.web.title || "External Research",
-        url: chunk.web.uri,
-        source: "Google Search"
+      const url = chunk.web.uri;
+      citationMap.set(url, {
+        title: chunk.web.title || "External Research Source",
+        url: url,
+        source: new URL(url).hostname.replace('www.', '').toUpperCase()
       });
     }
   });
 
-  citationsRaw.split('\n').forEach(line => {
-    const m = line.match(/\[(.*?)\]\((.*?)\)/);
-    if (m && !citations.some(c => c.url === m[2])) {
-      citations.push({ title: m[1], url: m[2], source: "Verified Data" });
+  // 2. Process Manual Citations (Fallback for sources model "remembers" or explicitly mentions)
+  const manualUrls = citationsRaw.match(/https?:\/\/[^\s)]+/g) || [];
+  manualUrls.forEach(url => {
+    if (!citationMap.has(url)) {
+      try {
+        citationMap.set(url, {
+          title: "Verified Documentation",
+          url: url,
+          source: new URL(url).hostname.replace('www.', '').toUpperCase()
+        });
+      } catch (e) {
+        // Skip malformed URLs
+      }
     }
   });
 
+  const citations = Array.from(citationMap.values()).slice(0, 32);
+
   return { 
-    id: `sim-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+    id: `sim-${Date.now()}`,
     timestamp: Date.now(),
     decision, 
     tags, 
-    analysis: analysis.trim() || "Analysis synthesis in progress...", 
-    polls, 
-    citations: citations.slice(0, 15) 
+    analysis: analysis.trim(), 
+    polls: polls.slice(0, 9), 
+    mainSimulation,
+    citations 
   };
 }
