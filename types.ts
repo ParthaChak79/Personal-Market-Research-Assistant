@@ -1,13 +1,19 @@
 
 export type DecisionType = 'Personal' | 'Career' | 'Business' | 'Investment' | 'Lifestyle';
 
+/**
+ * Represents an individual choice within a simulated scenario.
+ */
 export interface PollOption {
   label: string;
   percentage: number;
-  // Added index signature to satisfy Recharts requirements where data objects must be indexable by string
+  /** Recharts requirement: allow dynamic indexing */
   [key: string]: any;
 }
 
+/**
+ * A simulated behavioral scenario derived from research data.
+ */
 export interface PollQuestion {
   id: string;
   question: string;
@@ -16,12 +22,18 @@ export interface PollQuestion {
   bgColor?: string;
 }
 
+/**
+ * Credibility markers pointing to real-world data sources.
+ */
 export interface Citation {
   title: string;
   url: string;
   source: string;
 }
 
+/**
+ * The core data model for a completed Research Report.
+ */
 export interface SurveyData {
   id: string;
   timestamp: number;
@@ -29,7 +41,7 @@ export interface SurveyData {
   tags: DecisionType[];
   analysis: string;
   polls: PollQuestion[];
-  mainSimulation: PollOption[]; // Main decision pie chart data
+  mainSimulation: PollOption[];
   citations: Citation[];
 }
 

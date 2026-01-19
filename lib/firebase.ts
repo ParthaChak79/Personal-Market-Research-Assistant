@@ -1,16 +1,7 @@
-import { initializeApp, getApp, getApps, FirebaseApp } from "firebase/app";
+
+import { initializeApp, getApp, getApps } from "firebase/app";
 import { 
-  getFirestore, 
-  collection, 
-  getDocs, 
-  query, 
-  orderBy, 
-  limit, 
-  doc, 
-  updateDoc,
-  deleteDoc,
-  setDoc,
-  Firestore
+  getFirestore, collection, getDocs, query, orderBy, limit, doc, deleteDoc, setDoc, Firestore 
 } from "firebase/firestore";
 import { SurveyData } from "../types";
 
@@ -23,128 +14,69 @@ const firebaseConfig = {
   appId: "1:816644983448:web:75a543d79c519370b21eed"
 };
 
-let db: Firestore | null = null;
-const LOCAL_STORAGE_KEY = "aria_simulations_cache";
+const LOCAL_STORAGE_KEY = "aria_sim_cache";
+let dbInstance: Firestore | null = null;
 
-export function isCloudAvailable(): boolean {
-  return db !== null;
-}
-
-// Lazy-initialize the database to avoid race conditions during module loading
-function getDb(): Firestore | null {
-  if (db) return db;
-  
+/**
+ * Ensures Firebase is initialized only once and handles potential connection failures gracefully.
+ */
+function initDb(): Firestore | null {
+  if (dbInstance) return dbInstance;
   try {
-    let app: FirebaseApp;
-    const apps = getApps();
-    if (apps.length === 0) {
-      app = initializeApp(firebaseConfig);
-    } else {
-      app = getApp();
-    }
-    
-    // Attempt to connect to firestore
-    db = getFirestore(app);
-    console.log("Firestore service connected successfully");
-    return db;
-  } catch (e) {
-    console.error("Firestore initialization failed. If this persists, verify the Firebase console project status:", e);
+    const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+    dbInstance = getFirestore(app);
+    return dbInstance;
+  } catch (err) {
+    console.error("Firebase Initialization Error - Operating in Local Mode", err);
     return null;
   }
 }
 
-// Fallback logic for local storage
-const getLocalArchive = (): SurveyData[] => {
-  const cached = localStorage.getItem(LOCAL_STORAGE_KEY);
-  return cached ? JSON.parse(cached) : [];
-};
+export const isCloudAvailable = () => initDb() !== null;
 
-const saveLocalArchive = (data: SurveyData[]) => {
-  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data.slice(0, 50)));
-};
+/** 
+ * Persistent Local Fallback: Always cache the latest 50 records locally 
+ */
+const getLocal = (): SurveyData[] => JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || "[]");
+const saveLocal = (data: SurveyData[]) => localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data.slice(0, 50)));
 
 export async function saveSimulationToFirestore(data: SurveyData) {
-  const database = getDb();
-  if (!database) {
-    console.warn("Cloud storage unavailable, using local fallback.");
-    const archive = getLocalArchive();
-    saveLocalArchive([data, ...archive]);
-    return data.id;
-  }
-
-  try {
-    const docRef = doc(database, "simulations", data.id);
-    await setDoc(docRef, data);
-    console.log("Saved to Cloud:", data.id);
-    return data.id;
-  } catch (e: any) {
-    if (e.code === 'permission-denied') {
-      console.error("Firestore Permission Denied. Check Rules tab in Firebase Console.");
-    } else {
-      console.error("Firestore Save Error:", e);
+  const db = initDb();
+  if (db) {
+    try {
+      await setDoc(doc(db, "simulations", data.id), data);
+    } catch (e) {
+      console.warn("Cloud save failed, falling back to local storage.");
     }
-    const archive = getLocalArchive();
-    saveLocalArchive([data, ...archive]);
-    return data.id;
   }
-}
-
-export async function updateSimulationInFirestore(id: string, updates: Partial<SurveyData>) {
-  const database = getDb();
-  if (!database) {
-    const archive = getLocalArchive();
-    const updated = archive.map(a => a.id === id ? { ...a, ...updates } : a);
-    saveLocalArchive(updated);
-    return;
-  }
-
-  try {
-    const docRef = doc(database, "simulations", id);
-    await updateDoc(docRef, updates);
-  } catch (e) {
-    console.error("Cloud update failed:", e);
-  }
+  saveLocal([data, ...getLocal()]);
 }
 
 export async function getSimulationsFromFirestore(): Promise<SurveyData[]> {
-  const database = getDb();
-  if (!database) {
-    return getLocalArchive();
-  }
+  const db = initDb();
+  if (!db) return getLocal();
 
   try {
-    const q = query(
-      collection(database, "simulations"), 
-      orderBy("timestamp", "desc"), 
-      limit(20)
-    );
-    const querySnapshot = await getDocs(q);
-    const cloudResults = querySnapshot.docs.map(doc => doc.data() as SurveyData);
+    const q = query(collection(db, "simulations"), orderBy("timestamp", "desc"), limit(20));
+    const snapshot = await getDocs(q);
+    const cloudResults = snapshot.docs.map(d => d.data() as SurveyData);
     
-    const local = getLocalArchive();
+    // Merge cloud results with local results (deduplicated)
+    const local = getLocal();
     const merged = [...cloudResults];
-    local.forEach(l => {
-      if (!merged.find(m => m.id === l.id)) merged.push(l);
-    });
-    
+    local.forEach(l => { if (!merged.find(m => m.id === l.id)) merged.push(l); });
     return merged.sort((a, b) => b.timestamp - a.timestamp);
-  } catch (e: any) {
-    console.warn("Could not fetch from Cloud:", e.message);
-    return getLocalArchive();
+  } catch {
+    return getLocal();
   }
 }
 
 export async function deleteSimulationFromFirestore(id: string) {
-  const database = getDb();
-  
-  const local = getLocalArchive();
-  saveLocalArchive(local.filter(a => a.id !== id));
-
-  if (!database) return;
-
-  try {
-    await deleteDoc(doc(database, "simulations", id));
-  } catch (e) {
-    console.error("Cloud delete failed:", e);
+  saveLocal(getLocal().filter(item => item.id !== id));
+  const db = initDb();
+  if (db) {
+    try {
+      await deleteDoc(doc(db, "simulations", id));
+    } catch {}
   }
 }
