@@ -1,14 +1,13 @@
+
 import React from 'react';
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, Tooltip } from 'recharts';
 import { PollQuestion } from '../types';
 
 interface PollCardProps {
   poll: PollQuestion;
 }
 
-const COLORS = ['#1e293b', '#6366f1', '#a855f7', '#ec4899'];
+const COLORS = ['#1e293b', '#6366f1', '#a855f7', '#ec4899', '#10b981'];
 
-// Predefined professional soft backgrounds
 const BG_VARIANTS = [
   'bg-slate-50 border-slate-200',
   'bg-blue-50/50 border-blue-100',
@@ -21,63 +20,91 @@ const BG_VARIANTS = [
 ];
 
 export const PollCard: React.FC<PollCardProps> = ({ poll }) => {
-  // Use persistent random bg if provided, otherwise fallback
   const bgClass = poll.bgColor || BG_VARIANTS[0];
+  
+  // Sort options by percentage for better scannability
+  const sortedOptions = [...poll.options].sort((a, b) => b.percentage - a.percentage);
+  const maxPct = sortedOptions.length > 0 ? sortedOptions[0].percentage : 0;
 
   return (
-    <div className={`p-6 rounded-3xl border shadow-sm hover:shadow-md transition-all h-full flex flex-col ${bgClass}`}>
-      <h3 className="text-xl font-bold text-slate-800 mb-6 min-h-[4rem] leading-tight">
-        {poll.question}
-      </h3>
+    <div className={`p-8 rounded-[2.5rem] border shadow-sm hover:shadow-xl transition-all duration-500 h-full flex flex-col group ${bgClass}`}>
+      <div className="mb-8 space-y-2">
+        <div className="flex items-center gap-2">
+           <div className="w-1.5 h-6 bg-[var(--brand-from)] rounded-full opacity-40 group-hover:opacity-100 transition-opacity" />
+           <h3 className="text-xl font-black text-slate-900 leading-tight tracking-tight line-clamp-4">
+            {poll.question}
+          </h3>
+        </div>
+      </div>
       
-      <div className="h-72 mb-6 flex-grow">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart 
-            layout="vertical" 
-            data={poll.options} 
-            margin={{ left: -10, right: 40, top: 0, bottom: 0 }}
-          >
-            <XAxis type="number" hide domain={[0, 100]} />
-            <YAxis 
-              dataKey="label" 
-              type="category" 
-              width={140} 
-              axisLine={false} 
-              tickLine={false}
-              tick={{ fill: '#475569', fontSize: 10, fontWeight: 700 }}
-              interval={0}
-            />
-            <Tooltip 
-              cursor={{ fill: 'rgba(0,0,0,0.05)' }}
-              content={({ active, payload }) => {
-                if (active && payload && payload.length) {
-                  return (
-                    <div className="bg-slate-900 text-white px-3 py-1 rounded-lg text-xs font-bold shadow-xl border border-white/10">
-                      {payload[0].value}% Sentiment
-                    </div>
-                  );
-                }
-                return null;
-              }}
-            />
-            <Bar 
-              dataKey="percentage" 
-              radius={[0, 8, 8, 0]} 
-              barSize={24}
-              isAnimationActive={false}
-            >
-              {poll.options.map((_, index) => (
-                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} fillOpacity={0.9} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+      <div className="flex-grow space-y-6 mb-10 relative">
+        {/* Subtle background grid */}
+        <div className="absolute inset-0 flex justify-between pointer-events-none px-1 py-1">
+          <div className="w-px h-full border-l border-slate-200/50" />
+          <div className="w-px h-full border-l border-slate-200/50" />
+          <div className="w-px h-full border-l border-slate-200/50" />
+        </div>
+
+        {sortedOptions.map((option, idx) => {
+          const isWinner = option.percentage === maxPct && maxPct > 0;
+          
+          return (
+            <div key={idx} className="relative z-10 space-y-2 group/option">
+              <div className="flex justify-between items-start gap-4 px-1">
+                <div className="flex items-center gap-2 max-w-[80%]">
+                  {isWinner && (
+                    <span className="shrink-0 text-[8px] font-black bg-slate-900 text-white px-1.5 py-0.5 rounded-sm tracking-tighter uppercase">
+                      Most Probable
+                    </span>
+                  )}
+                  <span className={`text-[10px] font-black uppercase tracking-widest leading-normal ${isWinner ? 'text-slate-900' : 'text-slate-500'}`}>
+                    {option.label}
+                  </span>
+                </div>
+                <span className={`text-xs font-black shrink-0 ${isWinner ? 'text-indigo-600' : 'text-slate-900'}`}>
+                  {option.percentage}%
+                </span>
+              </div>
+              
+              <div className="h-4 w-full bg-slate-200/30 rounded-full overflow-hidden border border-white/50">
+                <div 
+                  className="h-full transition-all duration-1000 ease-out relative"
+                  style={{ 
+                    width: `${option.percentage}%`, 
+                    backgroundColor: isWinner ? 'var(--brand-from)' : COLORS[idx % COLORS.length],
+                    opacity: isWinner ? 1 : 0.6
+                  }}
+                >
+                  <div className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent" />
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* X-Axis Labels */}
+        <div className="flex justify-between px-1 text-[8px] font-bold text-slate-400 uppercase tracking-widest pt-2">
+          <span>0%</span>
+          <span>50%</span>
+          <span>100%</span>
+        </div>
+
+        {sortedOptions.length === 0 && (
+          <div className="flex items-center justify-center h-40 text-slate-400 font-bold italic text-sm text-center">
+            Dataset synthesizing...
+          </div>
+        )}
       </div>
 
-      <div className="bg-white/70 backdrop-blur-sm p-4 rounded-2xl mt-auto border border-white/40 shadow-inner">
-        <p className="text-xs text-slate-700 leading-relaxed italic">
-          <span className="font-black text-slate-900 not-italic uppercase text-[9px] tracking-widest block mb-2 opacity-50">Simulation Logic & Context</span>
-          "{poll.context}"
+      <div className="bg-white/70 backdrop-blur-md p-6 rounded-3xl mt-auto border border-white/60 shadow-inner group-hover:bg-white/95 transition-all">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="flex gap-0.5">
+            {[1, 2, 3].map(i => <div key={i} className="w-1.5 h-1.5 rounded-full bg-slate-900 opacity-20" />)}
+          </div>
+          <span className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Contextual Reasoning</span>
+        </div>
+        <p className="text-[13px] text-slate-600 leading-relaxed font-semibold italic line-clamp-4">
+          {poll.context}
         </p>
       </div>
     </div>
