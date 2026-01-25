@@ -4,8 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ARIA - AI Decision Research Assistant</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
         :root {
             --brand-from: #6366f1;
@@ -66,9 +68,12 @@
                 padding: 0 !important;
                 overflow: visible !important;
             }
-            #root { overflow: visible !important; }
-            main { overflow: visible !important; padding: 0 !important; }
-            .no-print { display: none !important; }
+            #root { overflow: visible !important; position: static !important; }
+            main { overflow: visible !important; padding: 0 !important; margin: 0 !important; }
+            
+            .no-print, nav, footer, button { 
+                display: none !important; 
+            }
             
             #report-content { 
                 box-shadow: none !important; 
@@ -76,29 +81,40 @@
                 border-radius: 0 !important;
                 width: 100% !important;
                 margin: 0 !important;
+                padding: 1.5cm !important;
+                background-color: white !important;
+                position: relative !important;
+                display: block !important;
             }
             
             .poll-grid { 
-                display: grid !important; 
-                grid-template-columns: 1fr 1fr !important;
-                gap: 20px !important;
+                display: block !important;
             }
             
             .poll-card { 
                 break-inside: avoid !important;
                 page-break-inside: avoid !important;
-                margin-bottom: 20px !important;
+                margin-bottom: 30px !important;
                 border: 1px solid #e2e8f0 !important;
+                display: block !important;
+                width: 100% !important;
             }
             
             section { 
                 break-inside: avoid !important;
                 page-break-inside: avoid !important;
+                display: block !important;
+                margin-bottom: 40px !important;
+            }
+
+            .gradient-bg {
+                background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%) !important;
+                color: white !important;
             }
             
             @page {
-                margin: 1cm;
-                size: A4;
+                margin: 0.5cm;
+                size: auto;
             }
         }
     </style>

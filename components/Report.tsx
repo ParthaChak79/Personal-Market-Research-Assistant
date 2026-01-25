@@ -1,8 +1,7 @@
-
 import React, { useState, useRef } from 'react';
 import { SurveyData } from '../types';
 import { PollCard } from './PollCard';
-import { FileText, ArrowLeft, Image as ImageIcon, Loader2, Printer, Globe, ShieldCheck, Zap, Compass } from 'lucide-react';
+import { FileText, ArrowLeft, Image as ImageIcon, Loader2, Globe, ShieldCheck, Zap, Compass } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 
 interface ReportProps {
@@ -18,17 +17,29 @@ export const Report: React.FC<ReportProps> = ({ data, onReset }) => {
     if (!reportRef.current) return;
     setIsExporting(true);
     try {
-      const dataUrl = await htmlToImage.toJpeg(reportRef.current, {
+      // Use toBlob with specific options to avoid the 'cssRules' CORS error
+      const blob = await htmlToImage.toBlob(reportRef.current, {
         quality: 0.95,
         pixelRatio: 2,
-        backgroundColor: '#ffffff',
+        backgroundColor: '#f8fafc',
+        cacheBust: true,
+        filter: (node: HTMLElement) => {
+          // Avoid nodes that might break the capture
+          return !node.classList?.contains('no-print');
+        }
       });
-      const link = document.createElement('a');
-      link.download = `ARIA-Report-${data.id.substring(0, 8)}.jpg`;
-      link.href = dataUrl;
-      link.click();
+
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.download = `ARIA-Report-${data.id.substring(0, 8)}.jpg`;
+        link.href = url;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
     } catch (err) {
       console.error('Failed to export image:', err);
+      alert('Image export failed. This is often due to browser security policies. Please check your connection or try a different browser.');
     } finally {
       setIsExporting(false);
     }
@@ -48,11 +59,11 @@ export const Report: React.FC<ReportProps> = ({ data, onReset }) => {
           Back to Dashboard
         </button>
         <div className="flex flex-wrap items-center gap-3">
-          <button onClick={() => window.print()} className="flex items-center gap-3 px-6 py-3 bg-white border border-slate-200 text-slate-700 rounded-full hover:bg-slate-50 transition-all shadow-sm font-bold">
-            <Printer size={18} />
-            Export PDF
-          </button>
-          <button onClick={downloadJpg} disabled={isExporting} className="flex items-center gap-3 px-6 py-3 gradient-bg text-white rounded-full transition-all shadow-lg active:scale-95 disabled:opacity-50 font-bold">
+          <button 
+            onClick={downloadJpg} 
+            disabled={isExporting} 
+            className="flex items-center gap-3 px-6 py-3 gradient-bg text-white rounded-full transition-all shadow-lg active:scale-95 disabled:opacity-50 font-bold"
+          >
             {isExporting ? <Loader2 size={18} className="animate-spin" /> : <ImageIcon size={20} />}
             Save Image
           </button>

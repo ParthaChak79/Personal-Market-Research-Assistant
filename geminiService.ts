@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { SurveyData, DecisionType, Citation, PollOption, PollQuestion } from "./types";
 
@@ -14,15 +13,15 @@ const BG_VARIANTS = [
 ];
 
 /**
- * Strips all structural artifacts including markdown, brackets, and leading/trailing noise.
+ * Strips all structural artifacts including markdown, brackets, and noise.
  */
 function stripArtifacts(text: string): string {
   if (!text) return "";
   return text
     .replace(/[*#_~]/g, '') // Remove markdown markers
     .replace(/[\[\]]/g, '') // Remove brackets
-    .replace(/Signal Vector \d+/gi, '') // Remove "Signal Vector X" prefixes
-    .replace(/Vector \d+/gi, '') // Remove "Vector X" prefixes
+    .replace(/Signal Vector \d+/gi, '') // Remove legacy internal labels
+    .replace(/Vector \d+/gi, '')
     .replace(/\s+/g, ' ') // Normalize whitespace
     .trim();
 }
@@ -32,7 +31,6 @@ function stripArtifacts(text: string): string {
  */
 function extractOptionsGreedily(text: string): PollOption[] {
   const options: PollOption[] = [];
-  // Standardize delimiters for extraction
   const cleanedText = text.replace(/\n/g, ' | ');
   const parts = cleanedText.split(/[,;|]|(?=\d+\s*%)/).filter(p => p.trim().length > 0);
   const seenLabels = new Set();
@@ -43,10 +41,11 @@ function extractOptionsGreedily(text: string): PollOption[] {
       const pct = parseInt(pctMatch[1], 10);
       let label = part.split(pctMatch[0])[0];
       
-      // Clean up label: remove brackets, markdown, and "Option X" prefixes
+      // Remove structural artifacts like "Label A", "Option 1", "A:", etc.
       label = stripArtifacts(label)
         .replace(/^[:\s-|,]+|[:\s-|,]+$/g, '')
-        .replace(/^(Option|Choice|Scenario|Label)\s+[A-Z\d][:\s-]*/i, '')
+        .replace(/^(Option|Choice|Scenario|Label|Case|Group)\s*[A-Z\d]?[:\s-]*/i, '')
+        .replace(/^[A-Z]\s*[:\-]\s*/i, '') // Strips "A: ", "B - "
         .trim();
 
       if (label && label.length > 0 && !isNaN(pct) && !seenLabels.has(label.toLowerCase())) {
@@ -57,12 +56,13 @@ function extractOptionsGreedily(text: string): PollOption[] {
     if (options.length >= 6) break;
   }
 
-  // Fallback pattern match if split-based failed
+  // Final fallback pattern
   if (options.length === 0) {
     const pattern = /([^:|%]+?)[:\s-]*(\d+)\s*%/g;
     let match;
     while ((match = pattern.exec(text)) !== null) {
       let label = stripArtifacts(match[1]).replace(/^[:\s-|,]+|[:\s-|,]+$/g, '').trim();
+      label = label.replace(/^(Option|Choice|Label|A|B|C)\s*[:\s-]*/i, '').trim();
       const pct = parseInt(match[2], 10);
       if (label && !seenLabels.has(label.toLowerCase())) {
         options.push({ label, percentage: pct });
@@ -100,8 +100,8 @@ function normalizePercentages(options: PollOption[]): PollOption[] {
 
 export async function refineDecisionQuery(draft: string): Promise<string[]> {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const model = "gemini-3-flash-preview";
-  const prompt = `Rewrite this decision to be clearer and simpler: "${draft}". Provide 3 distinct simple alternatives. Use plain English. No brackets, no markdown. Return ONLY a JSON array of strings.`;
+  const model = 'gemini-3-flash-preview';
+  const prompt = `Rewrite this decision to be clearer and simpler: "${draft}". Provide 3 distinct simple alternatives. Use plain English. No brackets, no markdown, no jargon. Return ONLY a JSON array of strings.`;
   try {
     const response = await ai.models.generateContent({
       model: model,
@@ -122,7 +122,7 @@ export async function fetchResearchAndSimulate(
   tags: DecisionType[]
 ): Promise<SurveyData> {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const model = "gemini-3-pro-preview";
+  const model = 'gemini-3-pro-preview';
   const prompt = `
     Act as a Lead Decision Architect.
     DECISION: "${decision}"
@@ -131,33 +131,34 @@ export async function fetchResearchAndSimulate(
     GOAL: Generate a research report with 9 poll simulations using simple English.
 
     STRICT RULES:
-    1. SIMPLE ENGLISH: Use plain, easy-to-understand language. No jargon.
+    1. SIMPLE ENGLISH: Use plain, conversational language. Avoid corporate jargon.
     2. NO ARTIFACTS: NEVER use asterisks (*), hashes (#), or brackets ([]).
-    3. NO LABELS: NEVER use "Label A", "Label B", "Option 1", etc. Use natural names like "Buy Now" or "Wait for Surges".
-    4. STRUCTURE: Follow the section headers exactly.
+    3. NO LABELS: NEVER use "Label A", "Label B", "Option 1", etc. Use actual decision outcomes (e.g., "Full-time Pivot" or "Part-time Transition").
+    4. NO BRACKETS: Strip all square brackets from the output.
+    5. STRUCTURE: Follow the section headers exactly.
 
     OUTPUT STRUCTURE (STRICT):
     ---DATA_SYNTHESIS---
-    [Topic 1]: [Brief Description]
-    [Topic 2]: [Brief Description]
-    [Topic 3]: [Brief Description]
-    [Topic 4]: [Brief Description]
+    [Topic title without brackets]: [Simple explanation]
+    [Topic title without brackets]: [Simple explanation]
+    [Topic title without brackets]: [Simple explanation]
+    [Topic title without brackets]: [Simple explanation]
     (Provide exactly 4 distinct signal blocks)
 
     ---MAIN_SIMULATION---
-    Success Probability: 70%, Failure Risk: 30%
+    Probability of Success: 70%, Failure Risk: 30%
 
     ---EMPIRICAL_POLLS---
-    Provide exactly 9 polls. Use this format:
+    Provide exactly 9 polls. Format:
     POLL_START
-    QUESTION: Simple Scenario Question
-    OPTIONS: Natural Choice 1: 60%, Natural Choice 2: 40%
-    CONTEXT: Grounding evidence in simple terms.
+    QUESTION: A simple scenario question.
+    OPTIONS: Realistic Outcome 1: 60%, Realistic Outcome 2: 40%
+    CONTEXT: Why people choose these options in simple terms.
     POLL_END
 
     ---ACTION_PLAN---
-    1. Clear Action 1
-    2. Clear Action 2
+    1. Step 1 in simple terms
+    2. Step 2 in simple terms
     (4-5 clear steps)
 
     ---CITATIONS---
@@ -190,7 +191,6 @@ function parseSurveyData(text: string, decision: string, tags: DecisionType[], c
   const pollsSection = getSection("EMPIRICAL_POLLS");
   const actionPlanRaw = getSection("ACTION_PLAN");
 
-  // Filter and clean synthesis signals
   const analysis = analysisRaw.split('\n')
     .filter(l => l.trim().length > 5)
     .map(l => stripArtifacts(l))
@@ -217,7 +217,7 @@ function parseSurveyData(text: string, decision: string, tags: DecisionType[], c
           id: `poll-${idx}-${Date.now()}`,
           question: stripArtifacts(qMatch[1]),
           options: normalizePercentages(opts),
-          context: stripArtifacts(cMatch ? cMatch[1] : "Based on synthesized market sentiment."),
+          context: stripArtifacts(cMatch ? cMatch[1] : "Synthesized from current market data."),
           bgColor: BG_VARIANTS[idx % BG_VARIANTS.length]
         });
       }
@@ -234,12 +234,12 @@ function parseSurveyData(text: string, decision: string, tags: DecisionType[], c
         const urlObj = new URL(url);
         let domain = urlObj.hostname.replace('www.', '').toUpperCase();
         citationMap.set(url, {
-          title: cleanTitle || "Research Source",
+          title: cleanTitle || "Verified Resource",
           url: url,
           source: domain
         });
       } catch (e) {
-        citationMap.set(url, { title: cleanTitle || "Source Data", url, source: "EXTERNAL RESEARCH" });
+        citationMap.set(url, { title: cleanTitle || "Source Data", url, source: "RESEARCH" });
       }
     }
   });

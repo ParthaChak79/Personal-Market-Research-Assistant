@@ -1,5 +1,5 @@
 
-import React, { ErrorInfo, ReactNode } from 'react';
+import React, { Component, ErrorInfo, ReactNode } from 'react';
 
 interface Props {
   children?: ReactNode;
@@ -11,14 +11,15 @@ interface State {
 
 /**
  * Standard React Error Boundary. 
- * Explicitly typed inheritance ensures that 'props' and 'state' are correctly recognized
- * by the TypeScript compiler.
+ * Using named Component import from 'react' to ensure correct generic inheritance 
+ * of props and state types in the class instance.
  */
-export class ErrorBoundary extends React.Component<Props, State> {
-  // Use a constructor to ensure the base class is properly initialized with Props and State
+export class ErrorBoundary extends Component<Props, State> {
+  // Explicitly initialize state to satisfy strict property checks
+  public state: State = { hasError: false };
+
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false };
   }
 
   // Static method to update state when an error occurs during rendering
@@ -32,7 +33,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   public render() {
-    // Correctly check this.state.hasError
+    // Check this.state.hasError which is now correctly inherited
     if (this.state.hasError) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
@@ -50,7 +51,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
       );
     }
 
-    // Return this.props.children which is now correctly recognized as a property of the base class
+    // Return this.props.children which is now correctly recognized
     return this.props.children;
   }
 }
